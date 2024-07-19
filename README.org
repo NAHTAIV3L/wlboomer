@@ -1,0 +1,13 @@
+** compiling wlboomer:
+
+#+begin_src shell
+  cc -o nob ./nob.c
+  ./nob
+#+end_src
+
+** controls:
+    - scrolling in and out zooms.
+    - use mouse to move the image
+    - scrolling with control held changed flashlight radius
+    - f toggles flashlight
+    - q quits
