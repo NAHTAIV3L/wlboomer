@@ -53,10 +53,8 @@ int main(int argc, char **argv) {
         "-lxkbcommon", "-lEGL", "-lOpenGL");
     nob_cmd_append(&cmd, "-o", prog);
     nob_cmd_append(&cmd, "./main.c",
-        "./shm.c",
         "./la.c",
         "./glad/glad.c",
-        "./render.c",
         "./shader.c",
         "./utils.c",
         "./xdg-shell-protocol.c",

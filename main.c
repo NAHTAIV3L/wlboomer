@@ -20,14 +20,70 @@
 #include "./xdg-shell-protocol.h"
 #include "./zxdg-output-v1.h"
 #include "./zwlr-screencopy-v1.h"
-#include "./shm.h"
-#include "./state.h"
-#include "./render.h"
+
 #include "./shader.h"
 #include "./utils.h"
+#include "./la.h"
 
 #define MIN_SCALE 0.1
 #define MAX_SCALE 10
+
+typedef struct {
+    struct wl_display* dpy;
+    struct wl_registry* registry;
+    struct wl_compositor* compositor;
+    struct wl_surface* surface;
+    struct xdg_wm_base* xdg_base;
+    struct xdg_toplevel* toplevel;
+    struct xdg_surface* xdg_surf;
+    struct wl_egl_window* ewindow;
+    struct wl_shm* shm;
+    struct wl_output* output;
+
+    struct wl_seat* seat;
+    struct wl_keyboard* keyboard;
+    struct wl_pointer* pointer;
+
+    struct wl_surface* cursor_surface;
+    struct wl_cursor_image* cursor_image;
+    struct wl_cursor_theme* cursor_theme;
+    struct wl_buffer* cursor_buffer;
+    struct wl_cursor* cursor;
+
+    struct zxdg_output_manager_v1* xdg_output_manager;
+    struct zwlr_screencopy_manager_v1* screencopy_manager;
+    struct zwlr_screencopy_frame_v1* screencopy_frame;
+    struct wl_buffer* screen_buffer;
+    struct wl_shm_pool *pool;
+    bool buffer_done;
+    uint8_t* screen_data;
+    uint32_t screen_format;
+    uint32_t screen_width, screen_height;
+
+    struct xkb_context* xkbctx;
+    struct xkb_keymap* xkbkeymap;
+    struct xkb_state* xkbstate;
+
+    uint32_t width, height;
+    EGLDisplay edpy;
+    EGLSurface esurface;
+    EGLConfig econfig;
+    EGLContext econtext;
+    bool running;
+    bool focused;
+
+    float scale;
+    float fl_radius;
+    float fl_shadow;
+    bool fl_snazzy;
+    bool fl_enabled;
+    double dt;
+    uint8_t button_left;
+    Vec2f camera;
+    Vec2f delta;
+    Vec2f mouse_cur;
+    Vec2f mouse_prev;
+} client_state;
 
 /******************************/
 /*****wlr_screencopy_frame*****/
@@ -207,6 +263,9 @@ void keyboard_key(void *data, struct wl_keyboard *keyboard,
     }
     if (keysym == XKB_KEY_f) {
         state->fl_enabled = !state->fl_enabled;
+    }
+    if (keysym == XKB_KEY_s) {
+        state->fl_snazzy = !state->fl_snazzy;
     }
 }
 
@@ -398,6 +457,8 @@ struct wl_registry_listener listener = {
 /*******************/
 
 int main() {
+    client_state state = {0};
+
     state.buffer_done = false;
     state.running = true;
     state.focused = true;
@@ -415,6 +476,8 @@ int main() {
     state.registry = wl_display_get_registry(state.dpy);
     wl_registry_add_listener(state.registry, &listener, &state);
     wl_display_roundtrip(state.dpy);
+
+    if (!state.screencopy_manager) die("screencopy_manager interface not found");
 
     state.screencopy_frame = zwlr_screencopy_manager_v1_capture_output(
         state.screencopy_manager, 0, state.output);
@@ -453,9 +516,7 @@ int main() {
 
 
     state.edpy = eglGetDisplay(state.dpy);
-    if (state.edpy == EGL_NO_DISPLAY)
-        die("edpy\n");
-
+    if (state.edpy == EGL_NO_DISPLAY) die("edpy\n");
     {
         EGLint major, minor;
         if (eglInitialize(state.edpy, &major, &minor) != EGL_TRUE)
@@ -492,8 +553,44 @@ int main() {
     }
 
 
-    Render glr = {0};
-    gl_render_init(&glr, "./main.vert", "./main.frag");
+    float verticies[(4 * 4)] = {
+        0.0f, 0.0f, 0.0f, 1.0f,
+        1.0f, 0.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        1.0f, 1.0f, 1.0f, 0.0f,
+    };
+
+    GLuint vertex_array;
+
+    glEnable(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glGenVertexArrays(1, &vertex_array);
+    glBindVertexArray(vertex_array);
+
+    GLuint vertex_buffer;
+
+    glGenBuffers(1, &vertex_buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verticies), verticies, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (GLvoid*)0);
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (GLvoid*)(sizeof(float) * 2));
+
+    GLuint indices[3 * 2] = {
+        0, 1, 2,
+        2, 1, 3,
+    };
+
+    GLuint element_buffer;
+    glGenBuffers(1, &element_buffer);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, element_buffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     GLuint texture;
     glActiveTexture(GL_TEXTURE0);
@@ -505,13 +602,11 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glTexImage2D(GL_TEXTURE_2D,
-        0,
-        GL_RGBA,
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
         state.screen_width,
         state.screen_height,
-        0,
-        GL_BGRA,
+        0, GL_BGRA,
         GL_UNSIGNED_BYTE,
         state.screen_data);
     glEnable(GL_TEXTURE_2D);
@@ -526,6 +621,7 @@ int main() {
     GLint cursor_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "in_cursor");
     GLint fl_radius_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_radius");
     GLint fl_shadow_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_shadow");
+    GLint fl_snazzy_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_snazzy");
 
     struct timeval tvstart, tvend, tvelapsed;
     gettimeofday(&tvstart, NULL);
@@ -536,7 +632,6 @@ int main() {
         state.dt = (double)tvelapsed.tv_sec + (double)tvelapsed.tv_usec/1000000.0f;
         gettimeofday(&tvstart, NULL);
 
-
         wl_display_dispatch_pending(state.dpy);
 
         if (state.fl_enabled)
@@ -544,6 +639,7 @@ int main() {
         else
             state.fl_shadow = MAX(state.fl_shadow - (6.0 * state.dt), 0.0);
 
+        shader_use(shdr, "test");
         glUniform1f(scale_uniform, state.scale);
         glUniform2f(camera_uniform, state.camera.x, state.camera.y);
         glUniform2f(res_uniform, state.width, state.height);
@@ -551,17 +647,14 @@ int main() {
 
         glUniform1f(fl_radius_uniform, state.fl_radius);
         glUniform1f(fl_shadow_uniform, state.fl_shadow);
+        glUniform1i(fl_snazzy_uniform, state.fl_snazzy);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
         glClearColor(0.0, 0.0, 0.0, 1.0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        gl_clear(&glr);
-        gl_render_quad(&glr, vec2f(0.0, 0.0), vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0), vec2f(0.0, 0.0), vec2f(1.0, 1.0), vec2f(1.0, 0.0));
-        gl_sync(&glr);
-        shader_use(shdr, "test");
-        glDrawArrays(GL_TRIANGLES, 0, glr.buffer_count);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         eglSwapBuffers(state.edpy, state.esurface);
 
