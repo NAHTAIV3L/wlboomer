@@ -2,11 +2,19 @@
 
 #define NOB_IMPLEMENTATION
 #include "./nob.h"
+#include <unistd.h>
 
 int main(int argc, char **argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
     const char* const program = nob_shift_args(&argc, &argv);
+    char path[256];
+    if (getcwd(path, sizeof(path)) == NULL) {
+        nob_log(NOB_ERROR, "Could not get current path");
+        return 1;
+    }
+    char path_flag[256];
+    sprintf(path_flag, "-DINSTALL_PATH=\"%s\"", path);
 
     Nob_Cmd cmd = {0};
 
@@ -51,6 +59,7 @@ int main(int argc, char **argv) {
     nob_cmd_append(&cmd, "-Wall", "-g");
     nob_cmd_append(&cmd, "-lwayland-client", "-lwayland-egl", "-lwayland-cursor",
         "-lxkbcommon", "-lEGL", "-lOpenGL");
+    nob_cmd_append(&cmd, path_flag);
     nob_cmd_append(&cmd, "-o", prog);
     nob_cmd_append(&cmd, "./main.c",
         "./la.c",

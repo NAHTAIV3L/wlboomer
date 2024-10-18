@@ -5,6 +5,10 @@
 #include "./shader.h"
 #include "./utils.h"
 
+#ifndef INSTALL_PATH
+#define INSTALL_PATH "./"
+#endif
+
 void shader_create(Shader** shdr, const char* name, const char* vert, const char* frag) {
     Shader* new_shdr = calloc(1, sizeof(Shader));
 
@@ -17,8 +21,11 @@ void shader_create(Shader** shdr, const char* name, const char* vert, const char
     new_shdr->frag_file = malloc(strlen(frag));
     strncpy(new_shdr->frag_file, frag, strlen(frag));
     {
-        char *vert_code = read_file(new_shdr->vert_file);
-        char *frag_code = read_file(new_shdr->frag_file);
+        char buffer[256];
+        sprintf(buffer, "%s/%s", INSTALL_PATH, vert);
+        char *vert_code = read_file(buffer);
+        sprintf(buffer, "%s/%s", INSTALL_PATH, frag);
+        char *frag_code = read_file(buffer);
 
         GLuint vertex, fragment;
         int success;

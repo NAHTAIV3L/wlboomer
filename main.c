@@ -613,7 +613,7 @@ int main() {
     glBindTexture(GL_TEXTURE_2D, 0);
 
     Shader* shdr = NULL;
-    shader_create(&shdr, "test", "./main.vert", "./main.frag");
+    shader_create(&shdr, "test", "main.vert", "main.frag");
     shader_use(shdr, "test");
     GLint scale_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "scale");
     GLint camera_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "camera");
