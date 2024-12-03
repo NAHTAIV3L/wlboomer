@@ -28,6 +28,10 @@
 #define MIN_SCALE 0.1
 #define MAX_SCALE 10
 
+#ifndef INSTALL_PATH
+#define INSTALL_PATH "./"
+#endif
+
 typedef struct {
     struct wl_display* dpy;
     struct wl_registry* registry;
@@ -613,7 +617,7 @@ int main() {
     glBindTexture(GL_TEXTURE_2D, 0);
 
     Shader* shdr = NULL;
-    shader_create(&shdr, "test", "main.vert", "main.frag");
+    shader_create(&shdr, "test", INSTALL_PATH"/main.vert", INSTALL_PATH"/main.frag");
     shader_use(shdr, "test");
     GLint scale_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "scale");
     GLint camera_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "camera");
