@@ -68,16 +68,19 @@ int main(int argc, char **argv) {
 
     nob_cmd_append(&cmd, "cc");
     nob_cmd_append(&cmd, "-Wall", "-g");
-    if (!(install || nob_file_exists(SHADER_PATH))) {
+    if (!install) {
         char path[256];
         if (getcwd(path, sizeof(path)) == NULL) {
             nob_log(NOB_ERROR, "Could not get current path");
             return 1;
         }
         char buffer[256];
-        sprintf(buffer, "-DINSTALL_PATH=\"%s\"", path);
+        snprintf(buffer, 256, "-DSHADER_PATH=\"%s\"", path);
         nob_cmd_append(&cmd, buffer);
-    } else nob_cmd_append(&cmd, "-DINSTALL_PATH=\""SHADER_PATH"\"");
+    }
+    else {
+        nob_cmd_append(&cmd, "-DSHADER_PATH=\""SHADER_PATH"\"");
+    }
 
     nob_cmd_append(&cmd, "-lwayland-client", "-lwayland-egl", "-lwayland-cursor",
         "-lxkbcommon", "-lEGL", "-lOpenGL");

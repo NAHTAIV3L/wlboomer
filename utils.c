@@ -21,8 +21,8 @@ char *read_file(const char *file)
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     fseek(f, 0, SEEK_SET);
-    buffer = malloc(len);
-    fread(buffer, len + 1, 1, f);
+    buffer = malloc(len + 1);
+    fread(buffer, len, 1, f);
     fclose(f);
     buffer[len] = 0x00;
     return buffer;

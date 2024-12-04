@@ -8,14 +8,17 @@
 void shader_create(Shader** shdr, const char* name, const char* vert, const char* frag) {
     Shader* new_shdr = calloc(1, sizeof(Shader));
 
-    new_shdr->name = malloc(strlen(name));
+    new_shdr->name = malloc(strlen(name) + 1);
     strncpy(new_shdr->name, name, strlen(name));
+    new_shdr->name[strlen(name)] = 0;
 
-    new_shdr->vert_file = malloc(strlen(vert));
+    new_shdr->vert_file = malloc(strlen(vert) + 1);
     strncpy(new_shdr->vert_file, vert, strlen(vert));
+    new_shdr->vert_file[strlen(vert)] = 0;
 
-    new_shdr->frag_file = malloc(strlen(frag));
+    new_shdr->frag_file = malloc(strlen(frag) + 1);
     strncpy(new_shdr->frag_file, frag, strlen(frag));
+    new_shdr->frag_file[strlen(frag)] = 0;
     {
         char *vert_code = read_file(new_shdr->vert_file);
         char *frag_code = read_file(new_shdr->frag_file);
