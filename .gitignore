@@ -1,6 +1,7 @@
 /wlboomer
 /xdg-shell-protocol.*
 /zwlr-screencopy-v1.*
-/zxdg-output-v1.*
+/zwlr-layer-shell-v1.*
 /nob
 /nob.old
+/compile_flags.txt

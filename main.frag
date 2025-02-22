@@ -14,6 +14,10 @@ void main()
 {
     vec4 cursor = vec4(in_cursor.x, (res.y - in_cursor.y), 0, 1);
     vec4 image_mapped = texture(image, out_uv);
-    float mix_factor = (distance(cursor, gl_FragCoord) < (fl_radius * scale)) ? 0.0 : (fl_snazzy ? ((distance(cursor, gl_FragCoord) - (fl_radius * scale)) / ((fl_radius + 1) * scale) * fl_shadow) : fl_shadow);
+    float dist = distance(cursor, gl_FragCoord);
+    float radius_scaled = (fl_radius * scale);
+    float dist_from_r = dist - radius_scaled;
+    float mix_factor = fl_shadow;
+    mix_factor *= dist_from_r < 0.0 ? 0.0 : (fl_snazzy ? (dist_from_r / radius_scaled) : 1.0);
     gl_FragColor = mix(image_mapped, vec4(0.0, 0.0, 0.0, 1.0), mix_factor);
 }

@@ -1,464 +1,98 @@
 #include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <assert.h>
-#include <unistd.h>
-#include <time.h>
-#include <sys/mman.h>
 #include <sys/time.h>
+#include <stdlib.h>
 
 #include "./glad/glad.h"
-#include <EGL/egl.h>
-#include <GL/gl.h>
-#include <wayland-egl.h>
-#include <wayland-client.h>
-#include <wayland-cursor.h>
-#include <xkbcommon/xkbcommon.h>
-#include <linux/input-event-codes.h>
-
-#include "./xdg-shell-protocol.h"
-#include "./zxdg-output-v1.h"
-#include "./zwlr-screencopy-v1.h"
-
-#include "./shader.h"
-#include "./utils.h"
-#include "./la.h"
-
-#define MIN_SCALE 0.1
-#define MAX_SCALE 10
+#include "./state.h"
+#define MIN(x, y) (x < y ? x : y)
+#define MAX(x, y) (x > y ? x : y)
 
 #ifndef SHADER_PATH
 #define SHADER_PATH "./"
 #endif
 
-typedef struct {
-    struct wl_display* dpy;
-    struct wl_registry* registry;
-    struct wl_compositor* compositor;
-    struct wl_surface* surface;
-    struct xdg_wm_base* xdg_base;
-    struct xdg_toplevel* toplevel;
-    struct xdg_surface* xdg_surf;
-    struct wl_egl_window* ewindow;
-    struct wl_shm* shm;
-    struct wl_output* output;
+extern struct zwlr_screencopy_frame_v1_listener screencopy_listener;
 
-    struct wl_seat* seat;
-    struct wl_keyboard* keyboard;
-    struct wl_pointer* pointer;
+extern struct wl_output_listener output_listener;
 
-    struct wl_surface* cursor_surface;
-    struct wl_cursor_image* cursor_image;
-    struct wl_cursor_theme* cursor_theme;
-    struct wl_buffer* cursor_buffer;
-    struct wl_cursor* cursor;
+extern struct zwlr_layer_surface_v1_listener layer_surface_listener;
 
-    struct zxdg_output_manager_v1* xdg_output_manager;
-    struct zwlr_screencopy_manager_v1* screencopy_manager;
-    struct zwlr_screencopy_frame_v1* screencopy_frame;
-    struct wl_buffer* screen_buffer;
-    struct wl_shm_pool *pool;
-    bool buffer_done;
-    uint8_t* screen_data;
-    uint32_t screen_format;
-    uint32_t screen_width, screen_height;
+extern struct wl_keyboard_listener keyboard_listener;
 
-    struct xkb_context* xkbctx;
-    struct xkb_keymap* xkbkeymap;
-    struct xkb_state* xkbstate;
+extern struct wl_pointer_listener pointer_listener;
 
-    uint32_t width, height;
-    EGLDisplay edpy;
-    EGLSurface esurface;
-    EGLConfig econfig;
-    EGLContext econtext;
-    bool running;
-    bool focused;
+extern struct wl_seat_listener seat_listener;
 
-    float scale;
-    float fl_radius;
-    float fl_shadow;
-    bool fl_snazzy;
-    bool fl_enabled;
-    double dt;
-    uint8_t button_left;
-    Vec2f camera;
-    Vec2f delta;
-    Vec2f mouse_cur;
-    Vec2f mouse_prev;
-} client_state;
+extern struct wl_registry_listener registry_listener;
 
-/******************************/
-/*****wlr_screencopy_frame*****/
-/******************************/
-
-void screencopy_frame_buffer(void *data, struct zwlr_screencopy_frame_v1 *frame,
-    uint32_t format, uint32_t width, uint32_t height, uint32_t stride) {
-    client_state* state = data;
-
-    size_t size = width * height * 4;
-    int fd = allocate_shm_file("/wlscreenshot", size);
-    state->screen_data = mmap(NULL, size,
-        PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    state->pool = wl_shm_create_pool(state->shm, fd, size);
-    state->screen_buffer = wl_shm_pool_create_buffer(state->pool, 0, width, height,
-        stride, format);
-
-    state->screen_width = width;
-    state->screen_height = height;
-    state->screen_format = format;
-}
-
-void screencopy_frame_flags(void *data,
-    struct zwlr_screencopy_frame_v1 *zwlr_screencopy_frame_v1,
-        uint32_t flags) {
-}
-
-void screencopy_frame_ready(void *data, struct zwlr_screencopy_frame_v1 *zwlr_screencopy_frame_v1,
-    uint32_t tv_sec_hi, uint32_t tv_sec_lo, uint32_t tv_nsec) {
-}
-
-void screencopy_frame_failed(void *data, struct zwlr_screencopy_frame_v1 *zwlr_screencopy_frame_v1) {
-    printf("failed to copy output\n");
-}
-
-void screencopy_frame_linux_dmabuf(void * data, struct zwlr_screencopy_frame_v1 * zwlr_screencopy_frame_v1,
-    uint32_t format, uint32_t width, uint32_t height) {
-}
-
-
-void screencopy_frame_buffer_done(void * data, struct zwlr_screencopy_frame_v1 * zwlr_screencopy_frame_v1) {
-    client_state* state = data;
-    state->buffer_done = true;
-}
-
-struct zwlr_screencopy_frame_v1_listener screencopy_listener = {
-    .buffer = screencopy_frame_buffer,
-    .flags  = screencopy_frame_flags,
-    .ready  = screencopy_frame_ready,
-    .failed = screencopy_frame_failed,
-    .linux_dmabuf = screencopy_frame_linux_dmabuf,
-    .buffer_done = screencopy_frame_buffer_done,
-};
-
-/*******************/
-/*****wl_output*****/
-/*******************/
-
-void output_geometry(void *data, struct wl_output *wl_output, int32_t x, int32_t y,
-    int32_t physical_width, int32_t physical_height, int32_t subpixel, const char *make,
-    const char *model, int32_t transform) {
-}
-
-void output_mode(void *data, struct wl_output *wl_output, uint32_t flags,
-    int32_t width, int32_t height, int32_t refresh) {
-}
-
-void output_done(void *data, struct wl_output *wl_output) {
-}
-
-void output_scale(void *data, struct wl_output *wl_output, int32_t factor) {
-}
-
-static const struct wl_output_listener output_listener = {
-    .geometry = output_geometry,
-    .mode = output_mode,
-    .done = output_done,
-    .scale = output_scale,
-};
-
-/*******************/
-/****xdg_wm_base****/
-/*******************/
-
-void wm_base_ping(void *data, struct xdg_wm_base *xbase, uint32_t serial) {
-    (void)data;
-    xdg_wm_base_pong(xbase, serial);
-}
-
-struct xdg_wm_base_listener wm_base_listener = { .ping = wm_base_ping };
-
-/*******************/
-/****xdg_surface****/
-/*******************/
-
-void surface_configure(void *data, struct xdg_surface *xsurface, uint32_t serial) {
-    (void)data;
-    xdg_surface_ack_configure(xsurface, serial);
-}
-
-struct xdg_surface_listener surface_listener = { .configure = surface_configure };
-
-/*******************/
-/****xdg_toplevel***/
-/*******************/
-
-void toplevel_configure(void *data, struct xdg_toplevel *xtoplevel,
-    int32_t width, int32_t height, struct wl_array *states) {
-    client_state* state = data;
-
-    if (!width && !height) return;
-
-    if (state->width != (uint32_t)width || state->height != (uint32_t)height) {
-        state->width = width;
-        state->height = height;
-
-        wl_egl_window_resize(state->ewindow, width, height, 0, 0);
-        wl_surface_commit(state->surface);
-        glViewport(0, 0, width, height);
+char *read_file(const char *file)
+{
+    char* buffer = NULL;
+    FILE *f = fopen(file, "r");
+    if (!f) {
+        fprintf(stderr, "Failed to open file: %s", file);
+        exit(1);
     }
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buffer = malloc(len + 1);
+    fread(buffer, len, 1, f);
+    fclose(f);
+    buffer[len] = 0x00;
+    return buffer;
 }
 
-void toplevel_close(void *data, struct xdg_toplevel *xtoplevel) {
-    (void)xtoplevel;
-    client_state* state = data;
-    state->running = false;
-}
+GLuint compile_shader(const char* vert_file, const char* frag_file) {
+    char *vert_code = read_file(vert_file);
+    char *frag_code = read_file(frag_file);
 
-struct xdg_toplevel_listener toplevel_listener = {
-    .configure = toplevel_configure,
-    .close = toplevel_close,
-};
+    GLuint vertex, fragment;
+    int success;
+    char infoLog[512];
 
-/*******************/
-/****wl_keyboard****/
-/*******************/
+    vertex = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex, 1, (const GLchar* const*)&vert_code, NULL);
+    glCompileShader(vertex);
 
-void keyboard_keymap(void *data, struct wl_keyboard *keyboard,
-    uint32_t format, int32_t fd, uint32_t size) {
-    (void)keyboard;
-    client_state* state = data;
-
-    assert(format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1);
-
-    char* map_shm = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
-    assert(map_shm != MAP_FAILED && "map_shm failed");
-
-    state->xkbctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-    assert(state->xkbctx && "Failed to create xkb context");
-
-    state->xkbkeymap = xkb_keymap_new_from_string(state->xkbctx, map_shm,
-                                        XKB_KEYMAP_FORMAT_TEXT_V1,
-                                        XKB_KEYMAP_COMPILE_NO_FLAGS);
-    munmap(map_shm, size);
-    close(fd);
-    state->xkbstate = xkb_state_new(state->xkbkeymap);
-    assert(state && "Failed to create state");
-}
-
-void keyboard_enter(void *data, struct wl_keyboard *keyboard,
-    uint32_t serial, struct wl_surface *surface, struct wl_array *keys) {
-}
-
-void keyboard_leave(void *data, struct wl_keyboard *keyboard,
-    uint32_t serial, struct wl_surface *surface) {
-}
-
-void keyboard_key(void *data, struct wl_keyboard *keyboard,
-    uint32_t serial, uint32_t time, uint32_t key, uint32_t kstate) {
-    if (kstate == 0) return;
-    client_state* state = data;
-
-    xkb_keysym_t keysym = xkb_state_key_get_one_sym(state->xkbstate, key + 8);
-    if (keysym == XKB_KEY_q) {
-        state->running = false;
-    }
-    if (keysym == XKB_KEY_f) {
-        state->fl_enabled = !state->fl_enabled;
-    }
-    if (keysym == XKB_KEY_s) {
-        state->fl_snazzy = !state->fl_snazzy;
-    }
-}
-
-void keyboard_modifiers(void *data, struct wl_keyboard *keyboard,
-    uint32_t serial, uint32_t mods_depressed, uint32_t mods_latched, uint32_t mods_locked, uint32_t group) {
-
-    client_state* state = data;
-    xkb_state_update_mask(state->xkbstate,
-        mods_depressed, mods_latched, mods_locked, 0, 0, group);
-}
-
-void keyboard_repeat_info(void *data, struct wl_keyboard *keyboard,
-    int32_t rate, int32_t delay) {
-}
-
-struct wl_keyboard_listener keyboard_listener = {
-    .keymap = keyboard_keymap,
-    .enter = keyboard_enter,
-    .leave = keyboard_leave,
-    .key = keyboard_key,
-    .modifiers = keyboard_modifiers,
-    .repeat_info = keyboard_repeat_info,
-};
-
-/*******************/
-/*****wl_pointer****/
-/*******************/
-
-void pointer_enter(void *data, struct wl_pointer *pointer, uint32_t serial,
-struct wl_surface *surface, wl_fixed_t fixed_surface_x, wl_fixed_t fixed_surface_y) {
-    client_state* state = data;
-    int surface_x = wl_fixed_to_int(fixed_surface_x);
-    int surface_y = wl_fixed_to_int(fixed_surface_y);
-    state->mouse_cur.x = surface_x;
-    state->mouse_cur.y = surface_y;
-    state->mouse_prev.x = state->mouse_cur.x;
-    state->mouse_prev.y = state->mouse_cur.y;
-    state->focused = true;
-    wl_pointer_set_cursor(pointer, serial, state->cursor_surface, 0, 0);
-}
-
-void pointer_leave(void *data, struct wl_pointer *pointer,
-    uint32_t serial, struct wl_surface *surface) {
-    client_state* state = data;
-    state->focused = false;
-}
-
-void pointer_motion(void *data, struct wl_pointer *pointer, uint32_t time,
-    wl_fixed_t fixed_surface_x, wl_fixed_t fixed_surface_y) {
-    client_state* state = data;
-    int surface_x = wl_fixed_to_int(fixed_surface_x);
-    int surface_y = wl_fixed_to_int(fixed_surface_y);
-
-    state->mouse_cur.x = surface_x;
-    state->mouse_cur.y = surface_y;
-    if (state->button_left == WL_POINTER_BUTTON_STATE_PRESSED) {
-        state->delta = vec2f_sub(state->mouse_prev, state->mouse_cur);
-        state->camera.x += state->delta.x / state->scale;
-        state->camera.y += state->delta.y / state->scale;
-    }
-    state->mouse_prev.x = state->mouse_cur.x;
-    state->mouse_prev.y = state->mouse_cur.y;
-}
-
-void pointer_button(void *data, struct wl_pointer *pointer, uint32_t serial,
-    uint32_t time, uint32_t button, uint32_t button_state) {
-    client_state* state = data;
-    if (button == BTN_LEFT) {
-        state->button_left = button_state;
-    }
-}
-
-void pointer_axis(void *data, struct wl_pointer *pointer, uint32_t time,
-uint32_t axis, wl_fixed_t fixed_value) {
-    if (axis == WL_POINTER_AXIS_HORIZONTAL_SCROLL) return;
-
-    client_state* state = data;
-    int value = wl_fixed_to_int(fixed_value);
-    float delta = -value;
-    if (xkb_state_mod_name_is_active(state->xkbstate, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0){
-        state->fl_radius = CLAMP(state->fl_radius - (delta / state->scale), 0, 1000);
-        return;
+    glGetShaderiv(vertex, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(vertex, 512, NULL, infoLog);
+        fprintf(stderr, "ERROR: Failed to Compile %s shader file: %s\n", vert_file, infoLog);
+        exit(1);
     }
 
-    Vec2f old_scale = vec2fs(CLAMP(state->scale, MIN_SCALE, MAX_SCALE));
-    Vec2f new_scale = vec2fs(CLAMP(state->scale + (delta * state->dt), MIN_SCALE, MAX_SCALE));
-    Vec2f half_res = vec2f(state->width * 0.5f, state->height * 0.5f);
+    fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment, 1, (const GLchar* const*)&frag_code, NULL);
+    glCompileShader(fragment);
 
-    Vec2f p0 = vec2f_div(vec2f_sub(state->mouse_cur, half_res), old_scale);
-    Vec2f p1 = vec2f_div(vec2f_sub(state->mouse_cur, half_res), new_scale);
+    glGetShaderiv(fragment, GL_COMPILE_STATUS, &success);
+    if (!success)
+    {
+        glGetShaderInfoLog(fragment, 512, NULL, infoLog);
+        fprintf(stderr, "ERROR: Failed to Compile %s shader file: %s\n", frag_file, infoLog);
+        exit(1);
+    }
 
-    state->camera.x += p0.x - p1.x;
-    state->camera.y += p0.y - p1.y;
-    state->scale = new_scale.x;
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertex);
+    glAttachShader(program, fragment);
+    glLinkProgram(program);
+
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success)
+    {
+        fprintf(stderr, "Shader Link Failed\n");
+        exit(1);
+    }
+
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+    free(vert_code);
+    free(frag_code);
+    return program;
 }
-
-struct wl_pointer_listener pointer_listener = {
-    .enter = pointer_enter,
-    .leave = pointer_leave,
-    .motion = pointer_motion,
-    .button = pointer_button,
-    .axis = pointer_axis
-};
-
-/*******************/
-/******wl_seat******/
-/*******************/
-
-void seat_capabilities(void *data, struct wl_seat *seat, uint32_t cap) {
-    client_state* state = data;
-
-    if (cap & WL_SEAT_CAPABILITY_KEYBOARD && !state->keyboard) {
-        state->keyboard = wl_seat_get_keyboard(seat);
-        wl_keyboard_add_listener(state->keyboard, &keyboard_listener, state);
-    }
-    if (cap & WL_SEAT_CAPABILITY_POINTER && !state->pointer) {
-        state->pointer = wl_seat_get_pointer(seat);
-        wl_pointer_add_listener(state->pointer, &pointer_listener, state);
-        state->cursor_theme = wl_cursor_theme_load("Adwaita", 24, state->shm);
-        state->cursor = wl_cursor_theme_get_cursor(state->cursor_theme, "left_ptr");
-        state->cursor_image = state->cursor->images[0];
-        state->cursor_buffer = wl_cursor_image_get_buffer(state->cursor_image);
-        state->cursor_surface = wl_compositor_create_surface(state->compositor);
-        wl_surface_attach(state->cursor_surface, state->cursor_buffer, 0, 0);
-        wl_surface_commit(state->cursor_surface);
-    }
-
-}
-
-void seat_name(void *data, struct wl_seat *seat, const char *name) {
-}
-
-struct wl_seat_listener seat_listener = {
-    .capabilities = seat_capabilities,
-    .name = seat_name,
-};
-
-/*******************/
-/****wl_registry****/
-/*******************/
-
-void registry_global_add(void *data, struct wl_registry *registry, uint32_t name,
-    const char *interface, uint32_t version) {
-    (void)version;
-
-    client_state* state = data;
-    // printf("iface: '%s', ver: %d, name: %d\n", interface, version, name);
-
-    if (!strcmp(interface, wl_compositor_interface.name)) {
-        state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 1);
-    }
-    else if (!strcmp(interface, xdg_wm_base_interface.name)) {
-        state->xdg_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
-        xdg_wm_base_add_listener(state->xdg_base, &wm_base_listener, NULL);
-    }
-    else if (!strcmp(interface, wl_seat_interface.name)) {
-        state->seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
-        wl_seat_add_listener(state->seat, &seat_listener, state);
-    }
-    else if (!strcmp(interface, wl_shm_interface.name)) {
-        state->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
-    }
-    else if (!strcmp(interface, wl_output_interface.name)) {
-        state->output = wl_registry_bind(registry, name, &wl_output_interface, 3);
-        wl_output_add_listener(state->output, &output_listener, state);
-    }
-    else if (!strcmp(interface, zxdg_output_manager_v1_interface.name)) {
-        state->xdg_output_manager = wl_registry_bind(registry, name,
-            &zxdg_output_manager_v1_interface, 1);
-    }
-    else if (!strcmp(interface, zwlr_screencopy_manager_v1_interface.name)) {
-        state->screencopy_manager = wl_registry_bind(registry, name,
-        &zwlr_screencopy_manager_v1_interface, 3);
-    }
-    else {
-    }
-}
-
-void registry_global_remove(void *data, struct wl_registry *registry, uint32_t name) {
-}
-
-struct wl_registry_listener listener = {
-    .global = registry_global_add,
-    .global_remove = registry_global_remove,
-};
-
-/*******************/
-/*******main********/
-/*******************/
 
 int main() {
     client_state state = {0};
@@ -478,10 +112,13 @@ int main() {
         return 1;
     }
     state.registry = wl_display_get_registry(state.dpy);
-    wl_registry_add_listener(state.registry, &listener, &state);
+    wl_registry_add_listener(state.registry, &registry_listener, &state);
     wl_display_roundtrip(state.dpy);
 
-    if (!state.screencopy_manager) die("screencopy_manager interface not found");
+    if (!state.screencopy_manager){
+        fprintf(stderr, "screencopy_manager interface not found\n");
+        exit(1);
+    }
 
     state.screencopy_frame = zwlr_screencopy_manager_v1_capture_output(
         state.screencopy_manager, 0, state.output);
@@ -494,14 +131,19 @@ int main() {
 
     state.surface = wl_compositor_create_surface(state.compositor);
 
-    state.xdg_surf = xdg_wm_base_get_xdg_surface(state.xdg_base, state.surface);
-    xdg_surface_add_listener(state.xdg_surf, &surface_listener, NULL);
-
-    state.toplevel = xdg_surface_get_toplevel(state.xdg_surf);
-    xdg_toplevel_add_listener(state.toplevel, &toplevel_listener, &state);
-    xdg_toplevel_set_title(state.toplevel, "wlscreenshot");
-    xdg_toplevel_set_fullscreen(state.toplevel, state.output);
+    state.layer_surface = zwlr_layer_shell_v1_get_layer_surface(state.layer_shell, state.surface, NULL, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "wlboomer");
+    zwlr_layer_surface_v1_add_listener(state.layer_surface, &layer_surface_listener, &state);
+    zwlr_layer_surface_v1_set_size(state.layer_surface, 0, 0);
+    zwlr_layer_surface_v1_set_anchor(state.layer_surface,
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+                                     ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    zwlr_layer_surface_v1_set_exclusive_zone(state.layer_surface, -1);
+    zwlr_layer_surface_v1_set_margin(state.layer_surface, 0, 0, 0, 0);
+    zwlr_layer_surface_v1_set_keyboard_interactivity(state.layer_surface, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
     wl_surface_commit(state.surface);
+    wl_display_roundtrip(state.dpy);
 
     EGLint attrs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
@@ -515,39 +157,54 @@ int main() {
     };
 
     state.ewindow = wl_egl_window_create(state.surface, state.width, state.height);
-    if (!state.ewindow)
-        die("ewindow\n");
+    if (!state.ewindow) {
+        fprintf(stderr, "ewindow\n");
+        exit(1);
+    }
 
 
     state.edpy = eglGetDisplay(state.dpy);
-    if (state.edpy == EGL_NO_DISPLAY) die("edpy\n");
+    if (state.edpy == EGL_NO_DISPLAY)  {
+        fprintf(stderr, "edpy\n");
+        exit(1);
+    }
     {
         EGLint major, minor;
-        if (eglInitialize(state.edpy, &major, &minor) != EGL_TRUE)
-            die("eglinit\n");
+        if (eglInitialize(state.edpy, &major, &minor) != EGL_TRUE) {
+            fprintf(stderr, "eglinit\n");
+            exit(1);
+        }
 
         printf("EGL version %u.%u\n", major, minor);
     }
     eglBindAPI(EGL_OPENGL_API);
 
     EGLint num_configs;
-    if (eglChooseConfig(state.edpy, attrs, &state.econfig, 1, &num_configs) != EGL_TRUE)
-        die("econfig: %d\n", eglGetError());
+    if (eglChooseConfig(state.edpy, attrs, &state.econfig, 1, &num_configs) != EGL_TRUE) {
+        fprintf(stderr, "econfig: %d\n", eglGetError());
+        exit(1);
+    }
 
     state.esurface = eglCreateWindowSurface(state.edpy, state.econfig,
-        (EGLNativeWindowType)state.ewindow, NULL);
-    if (state.esurface == EGL_NO_SURFACE)
-        die("esurface\n");
+                                            (EGLNativeWindowType)state.ewindow, NULL);
+    if (state.esurface == EGL_NO_SURFACE) {
+        fprintf(stderr, "esurface\n");
+        exit(1);
+    }
 
 
     state.econtext = eglCreateContext(state.edpy, state.econfig, EGL_NO_CONTEXT, NULL);
-    if (state.econtext == EGL_NO_CONTEXT)
-        die("econtext: %x\n", eglGetError());
+    if (state.econtext == EGL_NO_CONTEXT) {
+        fprintf(stderr, "econtext: %x\n", eglGetError());
+        exit(1);
+    }
 
     eglMakeCurrent(state.edpy, state.esurface, state.esurface, state.econtext);
 
-    if (!gladLoadGL())
-        die("gladLoadGL");
+    if (!gladLoadGL()) {
+        fprintf(stderr, "gladLoadGL");
+        exit(1);
+    }
 
     {
         GLint major, minor;
@@ -566,7 +223,6 @@ int main() {
 
     GLuint vertex_array;
 
-    glEnable(GL_DEPTH_BUFFER_BIT);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -608,24 +264,23 @@ int main() {
 
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-        state.screen_width,
-        state.screen_height,
-        0, GL_BGRA,
-        GL_UNSIGNED_BYTE,
-        state.screen_data);
+                 state.screen_width,
+                 state.screen_height,
+                 0, GL_BGRA,
+                 GL_UNSIGNED_BYTE,
+                 state.screen_data);
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    Shader* shdr = NULL;
-    shader_create(&shdr, "test", SHADER_PATH"/main.vert", SHADER_PATH"/main.frag");
-    shader_use(shdr, "test");
-    GLint scale_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "scale");
-    GLint camera_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "camera");
-    GLint res_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "res");
-    GLint cursor_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "in_cursor");
-    GLint fl_radius_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_radius");
-    GLint fl_shadow_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_shadow");
-    GLint fl_snazzy_uniform = glGetUniformLocation(shader_get_program(shdr, "test"), "fl_snazzy");
+    GLuint program = compile_shader(SHADER_PATH"/main.vert", SHADER_PATH"/main.frag");
+    glUseProgram(program);
+    GLint scale_uniform = glGetUniformLocation(program, "scale");
+    GLint camera_uniform = glGetUniformLocation(program, "camera");
+    GLint res_uniform = glGetUniformLocation(program, "res");
+    GLint cursor_uniform = glGetUniformLocation(program, "in_cursor");
+    GLint fl_radius_uniform = glGetUniformLocation(program, "fl_radius");
+    GLint fl_shadow_uniform = glGetUniformLocation(program, "fl_shadow");
+    GLint fl_snazzy_uniform = glGetUniformLocation(program, "fl_snazzy");
 
     struct timeval tvstart, tvend, tvelapsed;
     gettimeofday(&tvstart, NULL);
@@ -636,32 +291,34 @@ int main() {
         state.dt = (double)tvelapsed.tv_sec + (double)tvelapsed.tv_usec/1000000.0f;
         gettimeofday(&tvstart, NULL);
 
-        wl_display_dispatch_pending(state.dpy);
+        wl_display_dispatch(state.dpy);
+        if (state.focused) {
 
-        if (state.fl_enabled)
-            state.fl_shadow = MIN(state.fl_shadow + (6.0 * state.dt), 0.8);
-        else
-            state.fl_shadow = MAX(state.fl_shadow - (6.0 * state.dt), 0.0);
+            if (state.fl_enabled)
+                state.fl_shadow = MIN(state.fl_shadow + (6.0 * state.dt), 0.8);
+            else
+                state.fl_shadow = MAX(state.fl_shadow - (6.0 * state.dt), 0.0);
 
-        shader_use(shdr, "test");
-        glUniform1f(scale_uniform, state.scale);
-        glUniform2f(camera_uniform, state.camera.x, state.camera.y);
-        glUniform2f(res_uniform, state.width, state.height);
-        glUniform2f(cursor_uniform, state.mouse_cur.x, state.mouse_cur.y);
+            glUseProgram(program);
+            glUniform1f(scale_uniform, state.scale);
+            glUniform2f(camera_uniform, state.camera.x, state.camera.y);
+            glUniform2f(res_uniform, state.width, state.height);
+            glUniform2f(cursor_uniform, state.mouse_cur.x, state.mouse_cur.y);
 
-        glUniform1f(fl_radius_uniform, state.fl_radius);
-        glUniform1f(fl_shadow_uniform, state.fl_shadow);
-        glUniform1i(fl_snazzy_uniform, state.fl_snazzy);
+            glUniform1f(fl_radius_uniform, state.fl_radius);
+            glUniform1f(fl_shadow_uniform, state.fl_shadow);
+            glUniform1i(fl_snazzy_uniform, state.fl_snazzy);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture);
-        glClearColor(0.0, 0.0, 0.0, 1.0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glClearColor(0.0, 0.0, 0.0, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-        eglSwapBuffers(state.edpy, state.esurface);
+            eglSwapBuffers(state.edpy, state.esurface);
 
+        }
         gettimeofday(&tvend, NULL);
         timersub(&tvend, &tvstart, &tvelapsed);
     }
@@ -670,6 +327,3 @@ int main() {
     wl_display_disconnect(state.dpy);
     return 0;
 }
-
-//wayland-scanner client-header /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml xdg-shell-protocol.h
-//wayland-scanner public-code /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml xdg-shell-protocol.c

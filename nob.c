@@ -4,8 +4,9 @@
 #include "./nob.h"
 #include <unistd.h>
 
-#define SHADER_PATH "/usr/local/share/wlboomer"
-#define PREFIX "/usr/local/bin"
+#define PREFIX "/usr/local"
+#define SHADER_PATH PREFIX"/share/wlboomer"
+#define BINDIR PREFIX"/bin"
 
 int main(int argc, char **argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
@@ -15,9 +16,11 @@ int main(int argc, char **argv) {
     Nob_Cmd cmd = {0};
 
     const char* prog = "./wlboomer";
-    const char* wl_protocols[] = {"./xdg-shell-protocol.c", "./xdg-shell-protocol.h",
-                                  "./zwlr-screencopy-v1.c", "./zwlr-screencopy-v1.h",
-                                  "./zxdg-output-v1.c",     "./zxdg-output-v1.h"};
+    const char* wl_protocols[] = {
+        "./xdg-shell-protocol.c", "./xdg-shell-protocol.h",
+        "./zwlr-screencopy-v1.c", "./zwlr-screencopy-v1.h",
+        "./zwlr-layer-shell-v1.c", "./zwlr-layer-shell-v1.h",
+    };
 
     int install = 0;
     for (int i = 0; i < argc; i++) {
@@ -54,45 +57,39 @@ int main(int argc, char **argv) {
     nob_cmd_append(&cmd, "wayland-scanner", "private-code", xdg_shell_path, "./xdg-shell-protocol.c");
     if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
 
-    const char* xdg_output_path = "/usr/share/wayland-protocols/unstable/xdg-output/xdg-output-unstable-v1.xml";
-    nob_cmd_append(&cmd, "wayland-scanner", "client-header", xdg_output_path, "./zxdg-output-v1.h");
-    if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
-    nob_cmd_append(&cmd, "wayland-scanner", "private-code", xdg_output_path, "./zxdg-output-v1.c");
-    if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
-
     const char* wlr_screencopy_path = "./wlr-screencopy-unstable-v1.xml";
     nob_cmd_append(&cmd, "wayland-scanner", "client-header", wlr_screencopy_path, "./zwlr-screencopy-v1.h");
     if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
     nob_cmd_append(&cmd, "wayland-scanner", "private-code", wlr_screencopy_path, "./zwlr-screencopy-v1.c");
     if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
 
+    const char* wlr_layer_shell_path = "./wlr-layer-shell-unstable-v1.xml";
+    nob_cmd_append(&cmd, "wayland-scanner", "client-header", wlr_layer_shell_path, "./zwlr-layer-shell-v1.h");
+    if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
+    nob_cmd_append(&cmd, "wayland-scanner", "private-code", wlr_layer_shell_path, "./zwlr-layer-shell-v1.c");
+    if (!nob_cmd_run_sync(cmd)) return 1; cmd.count = 0;
+
     nob_cmd_append(&cmd, "cc");
     nob_cmd_append(&cmd, "-Wall", "-g");
-    if (!install) {
-        char path[256];
-        if (getcwd(path, sizeof(path)) == NULL) {
-            nob_log(NOB_ERROR, "Could not get current path");
-            return 1;
-        }
-        char buffer[256];
-        snprintf(buffer, 256, "-DSHADER_PATH=\"%s\"", path);
-        nob_cmd_append(&cmd, buffer);
-    }
-    else {
+    if (install) {
         nob_cmd_append(&cmd, "-DSHADER_PATH=\""SHADER_PATH"\"");
     }
 
     nob_cmd_append(&cmd, "-lwayland-client", "-lwayland-egl", "-lwayland-cursor",
-        "-lxkbcommon", "-lEGL", "-lOpenGL");
+                   "-lxkbcommon", "-lEGL", "-lOpenGL", "-I/usr/X11R7/include", "-L/usr/X11R7/lib64");
     nob_cmd_append(&cmd, "-o", prog);
     nob_cmd_append(&cmd, "./main.c",
-        "./la.c",
-        "./glad/glad.c",
-        "./shader.c",
-        "./utils.c",
-        "./xdg-shell-protocol.c",
-        "./zxdg-output-v1.c",
-        "./zwlr-screencopy-v1.c");
+                   "./glad/glad.c",
+                   "./screencopy_frame.c",
+                   "./layer_surface.c",
+                   "./keyboard.c",
+                   "./pointer.c",
+                   "./seat.c",
+                   "./registry.c",
+                   "./output.c",
+                   "./xdg-shell-protocol.c",
+                   "./zwlr-layer-shell-v1.c",
+                   "./zwlr-screencopy-v1.c");
     if (!nob_cmd_run_sync(cmd)) return 1;
     cmd.count = 0;
 
@@ -105,7 +102,7 @@ int main(int argc, char **argv) {
         nob_cmd_append(&cmd, "cp", "main.frag", SHADER_PATH);
         if (!nob_cmd_run_sync(cmd)) return 1;
         cmd.count = 0;
-        nob_cmd_append(&cmd, "cp", prog, PREFIX"/wlboomer");
+        nob_cmd_append(&cmd, "cp", prog, BINDIR"/wlboomer");
         if (!nob_cmd_run_sync(cmd)) return 1;
     }
     for (int i = 0; i < argc; i++) {

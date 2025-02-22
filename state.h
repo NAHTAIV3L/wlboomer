@@ -2,19 +2,38 @@
 #define STATE_H_
 #include <stdbool.h>
 #include <stdint.h>
-#include "./la.h"
+#include <GL/gl.h>
+#include <EGL/egl.h>
+#include <wayland-egl.h>
+#include <wayland-client.h>
+#include <wayland-cursor.h>
+#include <xkbcommon/xkbcommon.h>
+#include <linux/input-event-codes.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <assert.h>
+#include "./zwlr-layer-shell-v1.h"
+#include "./zwlr-screencopy-v1.h"
+
+#define MIN_SCALE 0.1
+#define MAX_SCALE 10
+
+typedef struct {
+    float x;
+    float y;
+} vec2;
 
 typedef struct {
     struct wl_display* dpy;
     struct wl_registry* registry;
     struct wl_compositor* compositor;
     struct wl_surface* surface;
-    struct xdg_wm_base* xdg_base;
-    struct xdg_toplevel* toplevel;
-    struct xdg_surface* xdg_surf;
     struct wl_egl_window* ewindow;
     struct wl_shm* shm;
     struct wl_output* output;
+
+    struct zwlr_layer_shell_v1* layer_shell;
+    struct zwlr_layer_surface_v1* layer_surface;
 
     struct wl_seat* seat;
     struct wl_keyboard* keyboard;
@@ -51,14 +70,14 @@ typedef struct {
     float scale;
     float fl_radius;
     float fl_shadow;
+    bool fl_snazzy;
     bool fl_enabled;
     double dt;
     uint8_t button_left;
-    Vec2f camera;
-    Vec2f delta;
-    Vec2f mouse_cur;
-    Vec2f mouse_prev;
+    vec2 camera;
+    vec2 delta;
+    vec2 mouse_cur;
+    vec2 mouse_prev;
 } client_state;
 
-client_state state = {0};
 #endif // STATE_H_
