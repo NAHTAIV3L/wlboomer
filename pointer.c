@@ -61,32 +61,27 @@ void axis(void *data, struct wl_pointer *pointer, uint32_t time,
         return;
     }
 
-    vec2 old_scale = {
-        .x = (CLAMP(state->scale, MIN_SCALE, MAX_SCALE)),
-        .y = (CLAMP(state->scale, MIN_SCALE, MAX_SCALE)),
-    };
-    vec2 new_scale = {
-        .x = CLAMP(state->scale + (delta * state->dt), MIN_SCALE, MAX_SCALE),
-        .y = CLAMP(state->scale + (delta * state->dt), MIN_SCALE, MAX_SCALE),
-    };
+    float old_scale = CLAMP(state->scale, MIN_SCALE, MAX_SCALE);
+    float new_scale = CLAMP(state->scale + (delta * old_scale * state->dt * 0.5f), MIN_SCALE, MAX_SCALE);
+
+    // calculate new camera position
     vec2 half_res = {
         .x = state->width * 0.5f,
         .y = state->height * 0.5f
     };
-
     vec2 p0 = {
-        .x = (state->mouse_cur.x - half_res.x) / old_scale.x,
-        .y = (state->mouse_cur.y - half_res.y) / old_scale.y,
+        .x = (state->mouse_cur.x - half_res.x) / old_scale,
+        .y = (state->mouse_cur.y - half_res.y) / old_scale,
     };
-    /*Vec2f p1 = vec2f_div(vec2f_sub(state->mouse_cur, half_res), new_scale);*/
     vec2 p1 = {
-        .x = (state->mouse_cur.x - half_res.x) / new_scale.x,
-        .y = (state->mouse_cur.y - half_res.y) / new_scale.y,
+        .x = (state->mouse_cur.x - half_res.x) / new_scale,
+        .y = (state->mouse_cur.y - half_res.y) / new_scale,
     };
 
+    // update scale and camera
     state->camera.x += p0.x - p1.x;
     state->camera.y += p0.y - p1.y;
-    state->scale = new_scale.x;
+    state->scale = new_scale;
 }
 
 struct wl_pointer_listener pointer_listener = {

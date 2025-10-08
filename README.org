@@ -10,4 +10,9 @@
     - use mouse to move the image
     - scrolling with control held changed flashlight radius
     - f toggles flashlight
+    - s toggles snazzy
     - q quits
+
+** todo:
+booming toward edges centers camera
+right click to center
