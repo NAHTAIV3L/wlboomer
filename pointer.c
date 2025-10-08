@@ -5,10 +5,8 @@
 void enter(void *data, struct wl_pointer *pointer, uint32_t serial,
                    struct wl_surface *surface, wl_fixed_t fixed_surface_x, wl_fixed_t fixed_surface_y) {
     client_state* state = data;
-    int surface_x = wl_fixed_to_int(fixed_surface_x);
-    int surface_y = wl_fixed_to_int(fixed_surface_y);
-    state->mouse_cur.x = surface_x;
-    state->mouse_cur.y = surface_y;
+    state->mouse_cur.x = wl_fixed_to_int(fixed_surface_x);
+    state->mouse_cur.y = wl_fixed_to_int(fixed_surface_y);
     state->mouse_prev = state->mouse_cur;
     state->focused = true;
     wl_pointer_set_cursor(pointer, serial, state->cursor_surface, 0, 0);
