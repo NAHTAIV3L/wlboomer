@@ -8,7 +8,7 @@ void registry_global_add(void *data, struct wl_registry *registry, uint32_t name
                          const char *interface, uint32_t version) {
     client_state* state = data;
 
-    printf("iface: '%s', ver: %d, name: %d\n", interface, version, name);
+    /*printf("iface: '%s', ver: %d, name: %d\n", interface, version, name);*/
 
     if (!strcmp(interface, wl_compositor_interface.name)) {
         state->compositor = wl_registry_bind(registry, name, &wl_compositor_interface, 1);
