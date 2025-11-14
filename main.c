@@ -262,11 +262,15 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+    GLenum format = GL_BGRA;
+    if (state.screen_format == WL_SHM_FORMAT_XBGR8888) {
+        format = GL_RGBA;
+    }
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
                  state.screen_width,
                  state.screen_height,
-                 0, GL_BGRA,
+                 0, format,
                  GL_UNSIGNED_BYTE,
                  state.screen_data);
     glEnable(GL_TEXTURE_2D);
