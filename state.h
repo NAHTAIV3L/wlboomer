@@ -65,6 +65,7 @@ typedef struct {
     EGLConfig econfig;
     EGLContext econtext;
     bool running;
+    bool run_screenshot;
     bool focused;
 
     float scale;

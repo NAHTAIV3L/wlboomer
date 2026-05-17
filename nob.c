@@ -37,14 +37,9 @@ int main(int argc, char **argv) {
         }
         if (strcmp(argv[i], "install") == 0) install = 1;
         if (strcmp(argv[i], "uninstall") == 0) {
-            if (nob_file_exists(SHADER_PATH)) {
+            if (nob_file_exists(BINDIR"/wlboomer")) {
                 cmd.count = 0;
-                nob_cmd_append(&cmd, "rm", "-r", SHADER_PATH);
-                if (!nob_cmd_run_sync(cmd)) return 1;
-            }
-            if (nob_file_exists(PREFIX"/wlboomer")) {
-                cmd.count = 0;
-                nob_cmd_append(&cmd, "rm", PREFIX"/wlboomer");
+                nob_cmd_append(&cmd, "rm", BINDIR"/wlboomer");
                 if (!nob_cmd_run_sync(cmd)) return 1;
             }
             return 0;
@@ -71,9 +66,6 @@ int main(int argc, char **argv) {
 
     nob_cmd_append(&cmd, "cc");
     nob_cmd_append(&cmd, "-Wall", "-g");
-    if (install) {
-        nob_cmd_append(&cmd, "-DSHADER_PATH=\""SHADER_PATH"\"");
-    }
 
     nob_cmd_append(&cmd, "-lwayland-client", "-lwayland-egl", "-lwayland-cursor",
                    "-lxkbcommon", "-lEGL", "-lOpenGL", "-I/usr/X11R7/include", "-L/usr/X11R7/lib64");
@@ -94,14 +86,6 @@ int main(int argc, char **argv) {
     cmd.count = 0;
 
     if (install) {
-        if (!nob_mkdir_if_not_exists(SHADER_PATH)) return 1;
-        cmd.count = 0;
-        nob_cmd_append(&cmd, "cp", "main.vert", SHADER_PATH);
-        if (!nob_cmd_run_sync(cmd)) return 1;
-        cmd.count = 0;
-        nob_cmd_append(&cmd, "cp", "main.frag", SHADER_PATH);
-        if (!nob_cmd_run_sync(cmd)) return 1;
-        cmd.count = 0;
         nob_cmd_append(&cmd, "cp", prog, BINDIR"/wlboomer");
         if (!nob_cmd_run_sync(cmd)) return 1;
     }

@@ -42,8 +42,11 @@ void keyboard_key(void *data, struct wl_keyboard *keyboard,
     if (keysym == XKB_KEY_f) {
         state->fl_enabled = !state->fl_enabled;
     }
-    if (keysym == XKB_KEY_s) {
+    if (keysym == XKB_KEY_c) {
         state->fl_snazzy = !state->fl_snazzy;
+    }
+    if (keysym == XKB_KEY_s) {
+        state->run_screenshot = true;
     }
 }
 

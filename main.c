@@ -1,15 +1,15 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <stdlib.h>
+#include <time.h>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "./stb_image_write.h"
 
 #include "./glad/glad.h"
 #include "./state.h"
 #define MIN(x, y) (x < y ? x : y)
 #define MAX(x, y) (x > y ? x : y)
-
-#ifndef SHADER_PATH
-#define SHADER_PATH "./"
-#endif
 
 extern struct zwlr_screencopy_frame_v1_listener screencopy_listener;
 
@@ -25,28 +25,7 @@ extern struct wl_seat_listener seat_listener;
 
 extern struct wl_registry_listener registry_listener;
 
-char *read_file(const char *file)
-{
-    char* buffer = NULL;
-    FILE *f = fopen(file, "r");
-    if (!f) {
-        fprintf(stderr, "Failed to open file: %s", file);
-        exit(1);
-    }
-    fseek(f, 0, SEEK_END);
-    long len = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    buffer = malloc(len + 1);
-    fread(buffer, len, 1, f);
-    fclose(f);
-    buffer[len] = 0x00;
-    return buffer;
-}
-
-GLuint compile_shader(const char* vert_file, const char* frag_file) {
-    char *vert_code = read_file(vert_file);
-    char *frag_code = read_file(frag_file);
-
+GLuint compile_shader(const char* vert_code, const char* frag_code) {
     GLuint vertex, fragment;
     int success;
     char infoLog[512];
@@ -59,7 +38,7 @@ GLuint compile_shader(const char* vert_file, const char* frag_file) {
     if (!success)
     {
         glGetShaderInfoLog(vertex, 512, NULL, infoLog);
-        fprintf(stderr, "ERROR: Failed to Compile %s shader file: %s\n", vert_file, infoLog);
+        fprintf(stderr, "ERROR: Failed to Compile vert shader: %s\n", infoLog);
         exit(1);
     }
 
@@ -71,7 +50,7 @@ GLuint compile_shader(const char* vert_file, const char* frag_file) {
     if (!success)
     {
         glGetShaderInfoLog(fragment, 512, NULL, infoLog);
-        fprintf(stderr, "ERROR: Failed to Compile %s shader file: %s\n", frag_file, infoLog);
+        fprintf(stderr, "ERROR: Failed to Compile frag shader: %s\n", infoLog);
         exit(1);
     }
 
@@ -89,12 +68,12 @@ GLuint compile_shader(const char* vert_file, const char* frag_file) {
 
     glDeleteShader(vertex);
     glDeleteShader(fragment);
-    free(vert_code);
-    free(frag_code);
     return program;
 }
 
 int main() {
+
+    stbi_flip_vertically_on_write(1);
     client_state state = {0};
 
     state.buffer_done = false;
@@ -276,7 +255,54 @@ int main() {
     glEnable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    GLuint program = compile_shader(SHADER_PATH"/main.vert", SHADER_PATH"/main.frag");
+    char* vert_shader =
+        "#version 330 core\n"
+
+        "layout(location = 0) in vec2 pos;"
+        "layout(location = 1) in vec2 uv;"
+
+        "uniform float scale;"
+        "uniform vec2 camera;"
+        "uniform vec2 res;"
+        "uniform vec2 in_cursor;"
+
+        "out vec2 out_uv;"
+
+        "vec2 project(vec2 point) {"
+        "    vec2 ratio = vec2(1.0 / scale, 1.0 / scale);"
+        "    return (point * 2.0 - 1.0) / ratio;"
+        "}"
+
+        "void main() {"
+        "    out_uv = uv;"
+        "    vec2 new_pos = pos - ((camera / res) * vec2(1.0, -1.0));"
+        "    gl_Position = vec4(project(new_pos), 0.0, 1.0);"
+        "}";
+    char* frag_shader =
+        "#version 330 core\n"
+
+        "uniform sampler2D image;"
+        "uniform vec2 in_cursor;"
+        "uniform vec2 res;"
+        "uniform float scale;"
+        "uniform float fl_radius;"
+        "uniform float fl_shadow;"
+        "uniform bool fl_snazzy;"
+
+        "in vec2 out_uv;"
+
+        "void main() {"
+        "    vec4 cursor = vec4(in_cursor.x, (res.y - in_cursor.y), 0, 1);"
+        "    vec4 image_mapped = texture(image, out_uv);"
+        "    float dist = distance(cursor, gl_FragCoord);"
+        "    float radius_scaled = (fl_radius * scale);"
+        "    float dist_from_r = dist - radius_scaled;"
+        "    float mix_factor = fl_shadow;"
+        "    mix_factor *= dist_from_r < 0.0 ? 0.0 : (fl_snazzy ? (dist_from_r / radius_scaled) : 1.0);"
+        "    gl_FragColor = mix(image_mapped, vec4(0.0, 0.0, 0.0, 1.0), mix_factor);"
+        "}";
+
+    GLuint program = compile_shader(vert_shader, frag_shader);
     glUseProgram(program);
     GLint scale_uniform = glGetUniformLocation(program, "scale");
     GLint camera_uniform = glGetUniformLocation(program, "camera");
@@ -295,7 +321,6 @@ int main() {
         state.dt = (double)tvelapsed.tv_sec + (double)tvelapsed.tv_usec/1000000.0f;
         gettimeofday(&tvstart, NULL);
 
-        wl_display_dispatch(state.dpy);
         if (state.focused) {
 
             if (state.fl_enabled)
@@ -323,6 +348,20 @@ int main() {
             eglSwapBuffers(state.edpy, state.esurface);
 
         }
+        if (state.run_screenshot) {
+            char* buffer = malloc(state.width * state.height * 4);
+            glReadPixels(0, 0, state.width, state.height, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+            char filename[128] = {0};
+            time_t t = time(NULL);
+            struct tm *tm = localtime(&t);
+            strftime(filename, sizeof(filename), "Screenshot-%d-%e-%Y-%H-%M-%S.png", tm);
+            printf("(%d, %d)\n", state.width, state.height);
+            stbi_write_png(filename, state.width, state.height, 4, buffer, state.width * 4);
+            free(buffer);
+            state.run_screenshot = false;
+
+        }
+        wl_display_dispatch(state.dpy);
         gettimeofday(&tvend, NULL);
         timersub(&tvend, &tvstart, &tvelapsed);
     }
